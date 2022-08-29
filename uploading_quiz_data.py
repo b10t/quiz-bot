@@ -24,15 +24,15 @@ def save_qa_to_redis(questions_answers):
 
     for qa_text in questions_answers:
         if re.match(question_reg, qa_text):
-            question_text = re.sub(question_reg, '', qa_text).strip()
+            question_text = re.sub(question_reg, '', qa_text)
 
         if re.match(answer_reg, qa_text):
-            answer_text = re.sub(answer_reg, '', qa_text).strip()
+            answer_text = re.sub(answer_reg, '', qa_text)
 
             if question_text:
                 data = {
-                    'question': question_text,
-                    'answer': answer_text
+                    'question': re.sub('^\s+|\n|\r|\t|\s+$', '', question_text),
+                    'answer': re.sub('^\s+|\n|\r|\t|\s+$', '', answer_text),
                 }
 
                 redis_tools.set_json_value(

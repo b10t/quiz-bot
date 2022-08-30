@@ -1,8 +1,6 @@
 import logging
-import re
 import sys
 from enum import Enum, auto
-from random import choice
 from textwrap import dedent
 
 from environs import Env
@@ -12,35 +10,18 @@ from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
                           Filters, MessageHandler, Updater)
 from telegram.utils.helpers import escape_markdown
 
-import redis_tools
+from quiz_api import (delete_question_id, fetch_questions, get_answer_text,
+                      get_question_id, get_question_text,
+                      get_random_question_id, set_question_id)
 
 logger = logging.getLogger('support-bot')
 
 question_ids = []
+user_prefix = 'TG'
 
 
 class State(Enum):
     BUTTON_HANDLERS = auto()
-
-
-def get_question_id(user_id):
-    """Возвращает id вопроса пользователя."""
-    return redis_tools.get_value(f'TG_{user_id}')
-
-
-def set_question_id(user_id, qa_id):
-    """Устанавливает id вопроса пользователя."""
-    return redis_tools.set_value(f'TG_{user_id}', qa_id)
-
-
-def delete_question_id(user_id):
-    """Удаляет текущий id вопроса пользователя."""
-    redis_tools.delete_key(f'TG_{user_id}')
-
-
-def get_random_question_id():
-    """Возвращает случайны id вопроса."""
-    return choice(question_ids)
 
 
 class BotLogsHandler(logging.Handler):
@@ -94,21 +75,19 @@ def handle_new_question_request(update: Update, context: CallbackContext) -> Non
     """Обработка кнопки 'Новый вопрос'."""
     user_id = update.effective_user.id
 
-    question_id = get_question_id(user_id)
+    question_id = get_question_id(user_id, user_prefix)
 
     if not question_id:
-        question_id = get_random_question_id()
+        question_id = get_random_question_id(question_ids)
 
     logger.info(f'Получен вопрос с id: {question_id}')
 
-    set_question_id(user_id, question_id)
+    set_question_id(user_id, question_id, user_prefix)
     logger.info(f'Установка id вопроса пользователя: {user_id}')
 
-    qa_context = redis_tools.get_json_value(question_id)
+    logger.info(f'Правильный ответ: {get_answer_text(question_id)}')
 
-    logger.info(f'Правильный ответ: {qa_context.get("answer")}')
-
-    question_text = qa_context.get('question')
+    question_text = get_question_text(question_id)
     question_text = escape_markdown(question_text, 2)
 
     message_text = dedent(
@@ -127,8 +106,8 @@ def handle_give_up(update: Update, context: CallbackContext) -> None:
     """Обработка кнопки 'Сдаться'."""
     user_id = update.effective_user.id
 
-    if question_id := get_question_id(user_id):
-        answer_text = redis_tools.get_json_value(question_id).get('answer')
+    if question_id := get_question_id(user_id, user_prefix):
+        answer_text = get_answer_text(question_id)
         answer_text = escape_markdown(answer_text, 2)
 
         message_text = dedent(
@@ -146,7 +125,7 @@ def handle_give_up(update: Update, context: CallbackContext) -> None:
         )
 
         logger.info(f'Удаление id вопроса пользователя: {user_id}')
-        delete_question_id(user_id)
+        delete_question_id(user_id, user_prefix)
 
 
 def handle_show_invoice(update: Update, context: CallbackContext) -> None:
@@ -161,18 +140,14 @@ def handle_solution_attempt(update: Update, context: CallbackContext) -> None:
 
     message_text = 'Неправильно… Попробуешь ещё раз?'
 
-    if question_id := get_question_id(user_id):
-        answer_text = redis_tools.get_json_value(question_id).get('answer')
+    if question_id := get_question_id(user_id, user_prefix):
+        answer_text = get_answer_text(question_id)
 
-        if answer_text := re.split(r'[\.|(]', answer_text):
-            answer_text = answer_text[0].lower()
-            logger.info(f'Правильный ответ: {answer_text}')
+        if answer_text == user_response.lower():
+            message_text = 'Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
 
-            if answer_text == user_response.lower():
-                message_text = 'Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
-
-                logger.info(f'Удаление id вопроса пользователя: {user_id}')
-                delete_question_id(user_id)
+            logger.info(f'Удаление id вопроса пользователя: {user_id}')
+            delete_question_id(user_id, user_prefix)
 
         update.message.reply_text(
             message_text,
@@ -249,7 +224,7 @@ if __name__ == '__main__':
     logger.info('Старт бота викторины.')
     logger.info('Получение списка id вопросов...')
 
-    question_ids = redis_tools.fetch_keys('QA_*')
+    question_ids = fetch_questions()
 
     logger.info(
         dedent(

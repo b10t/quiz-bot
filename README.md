@@ -1,17 +1,12 @@
-# Бот помощник службы поддержки  
+# Бот проведения викторины  
 
-Чат-боты помогают службе поддержки, отвечая на частые вопросы. Используя облачный сервис распознавания естественного языка от Google - DialogFlow.  
+Чат-боты позволяют проводит викторину "Вопрос - Ответ", в Telegram и VK.  
 
 Назначение программ:  
 - tg_bot.py: чат-бот для Telegram.  
 - vk_bot.py: чат-бот для VK.  
-- create_intent.py: программа для загрузки данных (вопросы, ответы) на DialogFlow.  
+- uploading_quiz_data.py: программа для загрузки данных викторины (вопросы, ответы) на сервер Redis.  
 
-### Где протестировать  
-
-[Бот Tg](https://t.me/devman_support_b10t_bot)  
-[Бот VK](https://vk.com/im?peers=c1&sel=-215360229)  
-  
 ### Как установить
 
 Python3 должен быть уже установлен.
@@ -22,14 +17,18 @@ pip install -r requirements.txt
 
 ### Первоначальная настройка
 
+Создайте папку `quizzes_files` и скопируйте в неё файлы с вопросами и ответами викторин.  
+
 Скопируйте файл `.env.Example` и переименуйте его в `.env`.  
 
 Заполните переменные окружения в файле `.env`:  
 `TELEGRAM_TOKEN` - токен телеграм бота.  
 `TELEGRAM_CHAT_ID` - id телеграм чата (для вывода сообщений об ошибках чат-бота Telegram).  
-`GOOGLE_APPLICATION_CREDENTIALS` - путь к JSON ключу Google.  
-`GOOGLE_PROJECT_ID` - ID проекта Google.  
 `VK_GROUP_TOKEN` - токен группы VK.  
+`REDIS_HOST` - адрес сервера Redis.  
+`REDIS_PORT` - порт сервера Redis.  
+`REDIS_USERNAME` - имя пользователя для сервера Redis.  
+`REDIS_PASSWORD` - пароль пользователя для сервера Redis.  
 
 ### Как запускать
 
@@ -43,17 +42,17 @@ python tg_bot.py
 python vk_bot.py
 ```
 
-Для загрузки данных в DialogFlow:  
+Для загрузки данных викторин в Redis:  
 ```bash
-python create_intent.py
+python uploading_quiz_data.py
 ```
 
 ## Пример использования бота
 Пример результата для Telegram:  
-![Sample](https://dvmn.org/filer/canonical/1569214094/323/)
+![Sample](https://dvmn.org/filer/canonical/1569215494/324/)
 
 Пример результата для ВКонтакте:  
-![Sample](https://dvmn.org/filer/canonical/1569214089/322/)
+![Sample](https://dvmn.org/filer/canonical/1569215498/325/)
 
 ## Цель проекта
 

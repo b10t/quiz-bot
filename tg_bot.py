@@ -9,7 +9,7 @@ from environs import Env
 from telegram import (ParseMode, ReplyKeyboardMarkup, ReplyKeyboardRemove,
                       Update)
 from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
-                          Filters, MessageHandler, RegexHandler, Updater)
+                          Filters, MessageHandler, Updater)
 from telegram.utils.helpers import escape_markdown
 
 import redis_tools
@@ -54,7 +54,7 @@ class BotLogsHandler(logging.Handler):
         log_entry = self.format(record)
         self.telegram_bot.send_message(
             chat_id=self.telegram_chat_id,
-            text=dedent(log_entry)
+            text=dedent(f'ℹ️ {log_entry}')
         )
 
 
@@ -65,80 +65,124 @@ def error_handler(update: object, context: CallbackContext) -> None:
     )
 
 
-def start(update: Update, context: CallbackContext):
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
-
-    custom_keyboard = [['Новый вопрос', 'Сдаться'],
-                       ['Мой счёт']]
-    reply_markup = ReplyKeyboardMarkup(
+def get_keyboard_markup():
+    """Возвращает разметку клавиатуры."""
+    custom_keyboard = [
+        ['Новый вопрос', 'Сдаться'],
+        ['Мой счёт']
+    ]
+    return ReplyKeyboardMarkup(
         custom_keyboard,  # type: ignore
         input_field_placeholder='',
         resize_keyboard=True,
     )
 
+
+def start(update: Update, context: CallbackContext):
+    """Send a message when the command /start is issued."""
+    user = update.effective_user
+
     update.message.reply_text(
         f'Добро пожаловать в викторину, {user.first_name}!',
-        reply_markup=reply_markup
+        reply_markup=get_keyboard_markup()
     )
-
-    # context.user_data.get(States.START_OVER)
-    # context.user_data[States.START_OVER] = False
 
     return State.BUTTON_HANDLERS
 
 
-def process_buttons(update: Update, context: CallbackContext) -> None:
-    """Handles button pressing."""
+def handle_new_question_request(update: Update, context: CallbackContext) -> None:
+    """Обработка кнопки 'Новый вопрос'."""
     user_id = update.effective_user.id
-    message_text = update.message.text
 
-    if message_text == 'Новый вопрос':
+    question_id = get_question_id(user_id)
+
+    if not question_id:
         question_id = get_random_question_id()
-        logger.info(f'Получен вопрос с id: {question_id}')
 
-        set_question_id(user_id, question_id)
-        logger.info(f'Установка id вопроса пользователя: {user_id}')
+    logger.info(f'Получен вопрос с id: {question_id}')
 
-        question_text = redis_tools.get_json_value(question_id).get('question')
-        question_text = escape_markdown(question_text, 2)
+    set_question_id(user_id, question_id)
+    logger.info(f'Установка id вопроса пользователя: {user_id}')
+
+    qa_context = redis_tools.get_json_value(question_id)
+
+    logger.info(f'Правильный ответ: {qa_context.get("answer")}')
+
+    question_text = qa_context.get('question')
+    question_text = escape_markdown(question_text, 2)
+
+    message_text = dedent(
+        f'''
+            *Вопрос:*
+            `{question_text}`
+        '''
+    )
+    update.message.reply_text(
+        message_text,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+
+def handle_give_up(update: Update, context: CallbackContext) -> None:
+    """Обработка кнопки 'Сдаться'."""
+    user_id = update.effective_user.id
+
+    if question_id := get_question_id(user_id):
+        answer_text = redis_tools.get_json_value(question_id).get('answer')
+        answer_text = escape_markdown(answer_text, 2)
 
         message_text = dedent(
             f'''
-                *Вопрос:*
-                `{question_text}`
+                *Вот тебе правильный ответ:*
+                `{answer_text}`
+
+                Для продолжения, нажми «*Новый вопрос*»
             '''
         )
+
         update.message.reply_text(
             message_text,
-            parse_mode=ParseMode.MARKDOWN_V2
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
-
-    if message_text == 'Сдаться':
-        update.message.reply_text(
-            'Вот тебе правильный ответ: .... \nДля продолжения, нажми "Новый вопрос"')
 
         logger.info(f'Удаление id вопроса пользователя: {user_id}')
         delete_question_id(user_id)
 
-    if message_text == 'Мой счёт':
-        update.message.reply_text('Данная функция в разработке.')
+
+def handle_show_invoice(update: Update, context: CallbackContext) -> None:
+    """Обработка кнопки 'Мой счёт'."""
+    update.message.reply_text('Данная функция в разработке.')
 
 
-def process_message(update: Update, context: CallbackContext) -> None:
-    """Processes a message from the user."""
+def handle_solution_attempt(update: Update, context: CallbackContext) -> None:
+    """Обрабатывает ответ пользователя."""
     user_id = update.effective_user.id
-    message_text = update.message.text
+    user_response = update.message.text
 
-    # google_project_id = env.str('GOOGLE_PROJECT_ID')
+    message_text = 'Неправильно… Попробуешь ещё раз?'
 
-    # _, message_text = detect_intent_text(
-    #     google_project_id,
-    #     session_id,
-    #     message_text
-    # )
+    if question_id := get_question_id(user_id):
+        answer_text = redis_tools.get_json_value(question_id).get('answer')
 
-    update.message.reply_text(message_text)
+        if answer_text := re.split(r'[\.|(]', answer_text):
+            answer_text = answer_text[0].lower()
+            logger.info(f'Правильный ответ: {answer_text}')
+
+            if answer_text == user_response.lower():
+                message_text = 'Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
+
+                logger.info(f'Удаление id вопроса пользователя: {user_id}')
+                delete_question_id(user_id)
+
+        update.message.reply_text(
+            message_text,
+            reply_markup=get_keyboard_markup()
+        )
+    else:
+        update.message.reply_text(
+            'Для продолжения, нажми «Новый вопрос»',
+            reply_markup=get_keyboard_markup()
+        )
 
 
 def cancel(update: Update, context: CallbackContext) -> int:
@@ -160,10 +204,16 @@ def create_and_start_bot(telegram_token, telegram_chat_id):
     conversation = ConversationHandler(
         entry_points=[CommandHandler('start', start)],  # type: ignore
         states={
-            # StateEnum.LOCATE: [MessageHandler((Filters.text | Filters.location) & ~Filters.command, get_locate)],
-            State.BUTTON_HANDLERS: [MessageHandler(Filters.regex('^(Новый вопрос|Сдаться|Мой счёт)$') & ~Filters.command, process_buttons),
-                                    MessageHandler(Filters.text & ~Filters.command, process_message)],
-            # StateEnum.TYPE: [MessageHandler(Filters.text & ~Filters.command, get_type)],
+            State.BUTTON_HANDLERS: [
+                MessageHandler(Filters.regex('^Новый вопрос$')
+                               & ~Filters.command, handle_new_question_request),
+                MessageHandler(Filters.regex('^Сдаться$')
+                               & ~Filters.command, handle_give_up),
+                MessageHandler(Filters.regex('^Мой счёт$')
+                               & ~Filters.command, handle_show_invoice),
+                MessageHandler(Filters.text & ~Filters.command,
+                               handle_solution_attempt)
+            ],
         },  # type: ignore
         fallbacks=[
             CommandHandler('cancel', cancel),
@@ -196,7 +246,7 @@ if __name__ == '__main__':
     bot_logs_handler = BotLogsHandler(telegram_bot, telegram_chat_id)
     logger.addHandler(bot_logs_handler)
 
-    logger.info('Старт бота.')
+    logger.info('Старт бота викторины.')
     logger.info('Получение списка id вопросов...')
 
     question_ids = redis_tools.fetch_keys('QA_*')

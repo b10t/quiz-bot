@@ -16,7 +16,6 @@ from quiz_api import (delete_question_id, fetch_questions, get_answer_text,
 
 logger = logging.getLogger('support-bot')
 
-question_ids = []
 user_prefix = 'TG'
 
 
@@ -78,7 +77,7 @@ def handle_new_question_request(update: Update, context: CallbackContext) -> Non
     question_id = get_question_id(user_id, user_prefix)
 
     if not question_id:
-        question_id = get_random_question_id(question_ids)
+        question_id = get_random_question_id(fetch_questions())
 
     logger.info(f'Получен вопрос с id: {question_id}')
 

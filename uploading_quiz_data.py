@@ -4,7 +4,7 @@ import logging
 import os
 import re
 
-import redis_tools
+from quiz_api import bd_redis
 
 logger = logging.getLogger('quiz-bot')
 
@@ -34,8 +34,9 @@ def save_qa_to_redis(questions_answers):
                     question_text.encode('utf-8')
                 ).hexdigest()
 
-                redis_tools.set_json_value(
+                bd_redis.json().set(
                     f'QA_{question_hash}',
+                    '$',
                     data
                 )
 
@@ -80,6 +81,7 @@ if __name__ == '__main__':
         level=logging.INFO,
     )
 
-    redis_tools.delete_all_keys('QA_*')
+    if keys := bd_redis.keys('QA_*'):
+        bd_redis.delete(*keys)
 
     processing_quizzes_files()

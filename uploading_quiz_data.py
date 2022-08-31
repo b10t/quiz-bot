@@ -9,11 +9,6 @@ import redis_tools
 logger = logging.getLogger('quiz-bot')
 
 
-def get_qa_key(question):
-    """Возвращает ключ для хранения вопросов в базе данных."""
-    return 'QA_%s' % hashlib.md5(question.encode('utf-8')).hexdigest()
-
-
 def save_qa_to_redis(questions_answers):
     """Сохраняет вопросы и ответы в БД redis."""
     question_reg = r'^Вопрос \d+:'
@@ -35,8 +30,12 @@ def save_qa_to_redis(questions_answers):
                     'answer': re.sub('^\s+|\n|\r|\t|\s+$', '', answer_text),
                 }
 
+                question_hash = hashlib.md5(
+                    question_text.encode('utf-8')
+                ).hexdigest()
+
                 redis_tools.set_json_value(
-                    get_qa_key(question_text),
+                    f'QA_{question_hash}',
                     data
                 )
 
@@ -46,21 +45,14 @@ def get_qa_from_file(quiz_content):
     questions_answers = []
 
     current_qa = []
-    index = -1
 
-    while (True):
-        try:
-            index += 1
+    for text in quiz_content:
+        if text == '\n':
+            questions_answers.append(''.join(current_qa))
+            current_qa = []
+            continue
 
-            if quiz_content[index] == '\n':
-                questions_answers.append(''.join(current_qa))
-                current_qa = []
-                continue
-
-            current_qa.append(quiz_content[index])
-
-        except IndexError:
-            break
+        current_qa.append(text)
 
     return questions_answers
 

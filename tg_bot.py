@@ -5,6 +5,7 @@ from functools import partial
 from random import choice
 from textwrap import dedent
 
+import redis
 from environs import Env
 from telegram import (ParseMode, ReplyKeyboardMarkup, ReplyKeyboardRemove,
                       Update)
@@ -12,7 +13,7 @@ from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
                           Filters, MessageHandler, Updater)
 from telegram.utils.helpers import escape_markdown
 
-from quiz_api import create_redis, get_answer_text, get_question_text
+from quiz_api import get_answer_text, get_question_text
 
 logger = logging.getLogger('support-bot')
 
@@ -170,12 +171,11 @@ def cancel(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
-def create_and_start_bot(telegram_token, telegram_chat_id):
+def create_and_start_bot(telegram_token, telegram_chat_id, bd_redis):
     """Creates and launches a telegram bot."""
     logger.info('Старт бота викторины.')
     logger.info('Получение списка id вопросов...')
 
-    bd_redis = create_redis()
     question_ids = bd_redis.keys('QA_*')
 
     logger.info(
@@ -240,10 +240,26 @@ def main():
     env = Env()
     env.read_env()
 
+    redis_host = env.str('REDIS_HOST', 'localhost')
+    redis_port = env.str('REDIS_PORT', 6379)
+    redis_username = env.str('REDIS_USERNAME', '')
+    redis_password = env.str('REDIS_PASSWORD', '')
+
+    bd_redis = redis.Redis(
+        host=redis_host,
+        port=redis_port,
+        username=redis_username,
+        password=redis_password
+    )
+
     telegram_token = env.str('TELEGRAM_TOKEN')
     telegram_chat_id = env.int('TELEGRAM_CHAT_ID')
 
-    telegram_bot = create_and_start_bot(telegram_token, telegram_chat_id)
+    telegram_bot = create_and_start_bot(
+        telegram_token,
+        telegram_chat_id,
+        bd_redis
+    )
 
     bot_logs_handler = BotLogsHandler(telegram_bot, telegram_chat_id)
     logger.addHandler(bot_logs_handler)

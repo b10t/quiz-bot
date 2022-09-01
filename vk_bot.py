@@ -3,13 +3,15 @@ import sys
 from random import choice
 from textwrap import dedent
 
+import redis
+import vk_api as VK_API
 from environs import Env
 from vk_api.exceptions import ApiError
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from vk_api.longpoll import VkEventType, VkLongPoll
 from vk_api.utils import get_random_id
 
-from quiz_api import create_redis, get_answer_text, get_question_text
+from quiz_api import get_answer_text, get_question_text
 
 logger = logging.getLogger('support-bot')
 
@@ -133,17 +135,28 @@ def handle_solution_attempt(event, vk_api, bd_redis) -> None:
 
 
 def main():
-    import vk_api
-
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO,
     )
+    env = Env()
+    env.read_env()
 
     logger.info('Старт бота викторины.')
     logger.info('Получение списка id вопросов...')
 
-    bd_redis = create_redis()
+    redis_host = env.str('REDIS_HOST', 'localhost')
+    redis_port = env.str('REDIS_PORT', 6379)
+    redis_username = env.str('REDIS_USERNAME', '')
+    redis_password = env.str('REDIS_PASSWORD', '')
+
+    bd_redis = redis.Redis(
+        host=redis_host,
+        port=redis_port,
+        username=redis_username,
+        password=redis_password
+    )
+
     question_ids = bd_redis.keys('QA_*')
 
     logger.info(
@@ -155,12 +168,9 @@ def main():
         )
     )
 
-    env = Env()
-    env.read_env()
-
     vk_group_token = env.str('VK_GROUP_TOKEN')
 
-    vk_session = vk_api.VkApi(token=vk_group_token)
+    vk_session = VK_API.VkApi(token=vk_group_token)
     vk_api = vk_session.get_api()
 
     longpoll = VkLongPoll(vk_session)

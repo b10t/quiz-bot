@@ -4,12 +4,12 @@ import logging
 import os
 import re
 
-from quiz_api import bd_redis
+from quiz_api import create_redis
 
 logger = logging.getLogger('quiz-bot')
 
 
-def save_qa_to_redis(questions_answers):
+def save_qa_to_redis(bd_redis, questions_answers):
     """Сохраняет вопросы и ответы в БД redis."""
     question_reg = r'^Вопрос \d+:'
     answer_reg = r'^Ответ:'
@@ -58,7 +58,7 @@ def get_qa_from_file(quiz_content):
     return questions_answers
 
 
-def processing_quizzes_files(folder='quizzes_files'):
+def processing_quizzes_files(bd_redis, folder='quizzes_files'):
     """Обрабатывает файлы с викторинами из папки."""
     if not os.path.isdir(folder):
         logger.error(f'The folder with quizzes was not found: {folder}')
@@ -72,16 +72,22 @@ def processing_quizzes_files(folder='quizzes_files'):
                 quiz_file.readlines()
             )
 
-            save_qa_to_redis(questions_answers)
+            save_qa_to_redis(bd_redis, questions_answers)
 
 
-if __name__ == '__main__':
+def main():
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO,
     )
 
+    bd_redis = create_redis()
+
     if keys := bd_redis.keys('QA_*'):
         bd_redis.delete(*keys)
 
-    processing_quizzes_files()
+    processing_quizzes_files(bd_redis)
+
+
+if __name__ == '__main__':
+    main()

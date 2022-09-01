@@ -1,6 +1,5 @@
 import logging
 import re
-from random import choice
 
 import redis
 from environs import Env
@@ -28,31 +27,6 @@ def create_redis():
     )
 
 
-# def get_question_id(user_id, prefix):
-#     """Возвращает id вопроса пользователя."""
-#     return bd_redis.get(f'{prefix}_{user_id}')
-
-
-# def set_question_id(user_id, qa_id, prefix):
-#     """Устанавливает id вопроса пользователя."""
-#     return bd_redis.set(f'{prefix}_{user_id}', qa_id)
-
-
-# def delete_question_id(user_id, prefix):
-#     """Удаляет текущий id вопроса пользователя."""
-#     bd_redis.delete(f'{prefix}_{user_id}')
-
-
-# def get_random_question_id(question_ids):
-#     """Возвращает случайны id вопроса."""
-#     return choice(question_ids)
-
-
-# def fetch_questions():
-#     """Возвращает id всех вопросов"""
-#     return bd_redis.keys('QA_*')
-
-
 def get_question_text(bd_redis, question_id):
     """Возвращает текст вопроса."""
     qa_context = bd_redis.json().get(question_id)
@@ -67,6 +41,3 @@ def get_answer_text(bd_redis, question_id) -> str:
         answer_text = answer_text[0].lower()
 
     return answer_text.strip()  # type: ignore
-
-
-# bd_redis = create_redis()

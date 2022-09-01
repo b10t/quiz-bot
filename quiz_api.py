@@ -5,6 +5,8 @@ from random import choice
 import redis
 from environs import Env
 
+logger = logging.getLogger('quiz-bot')
+
 
 def create_redis():
     """
@@ -26,38 +28,38 @@ def create_redis():
     )
 
 
-def get_question_id(user_id, prefix):
-    """Возвращает id вопроса пользователя."""
-    return bd_redis.get(f'{prefix}_{user_id}')
+# def get_question_id(user_id, prefix):
+#     """Возвращает id вопроса пользователя."""
+#     return bd_redis.get(f'{prefix}_{user_id}')
 
 
-def set_question_id(user_id, qa_id, prefix):
-    """Устанавливает id вопроса пользователя."""
-    return bd_redis.set(f'{prefix}_{user_id}', qa_id)
+# def set_question_id(user_id, qa_id, prefix):
+#     """Устанавливает id вопроса пользователя."""
+#     return bd_redis.set(f'{prefix}_{user_id}', qa_id)
 
 
-def delete_question_id(user_id, prefix):
-    """Удаляет текущий id вопроса пользователя."""
-    bd_redis.delete(f'{prefix}_{user_id}')
+# def delete_question_id(user_id, prefix):
+#     """Удаляет текущий id вопроса пользователя."""
+#     bd_redis.delete(f'{prefix}_{user_id}')
 
 
-def get_random_question_id(question_ids):
-    """Возвращает случайны id вопроса."""
-    return choice(question_ids)
+# def get_random_question_id(question_ids):
+#     """Возвращает случайны id вопроса."""
+#     return choice(question_ids)
 
 
-def fetch_questions():
-    """Возвращает id всех вопросов"""
-    return bd_redis.keys('QA_*')
+# def fetch_questions():
+#     """Возвращает id всех вопросов"""
+#     return bd_redis.keys('QA_*')
 
 
-def get_question_text(question_id):
+def get_question_text(bd_redis, question_id):
     """Возвращает текст вопроса."""
     qa_context = bd_redis.json().get(question_id)
     return qa_context.get('question')
 
 
-def get_answer_text(question_id) -> str:
+def get_answer_text(bd_redis, question_id) -> str:
     """Возвращает текст ответа."""
     answer_text = bd_redis.json().get(question_id).get('answer')
 
@@ -67,5 +69,4 @@ def get_answer_text(question_id) -> str:
     return answer_text.strip()  # type: ignore
 
 
-logger = logging.getLogger('quiz-bot')
-bd_redis = create_redis()
+# bd_redis = create_redis()

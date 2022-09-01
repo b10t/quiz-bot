@@ -1,17 +1,15 @@
 import logging
 import sys
+from random import choice
 from textwrap import dedent
 
-import vk_api
 from environs import Env
 from vk_api.exceptions import ApiError
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from vk_api.longpoll import VkEventType, VkLongPoll
 from vk_api.utils import get_random_id
 
-from quiz_api import (delete_question_id, fetch_questions, get_answer_text,
-                      get_question_id, get_question_text,
-                      get_random_question_id, set_question_id)
+from quiz_api import create_redis, get_answer_text, get_question_text
 
 logger = logging.getLogger('support-bot')
 
@@ -31,23 +29,23 @@ def get_keyboard_markup():
     return keyboard.get_keyboard()
 
 
-def handle_new_question_request(event, vk_api) -> None:
+def handle_new_question_request(event, vk_api, bd_redis) -> None:
     """Обработка кнопки 'Новый вопрос'."""
     user_id = event.user_id
 
-    question_id = get_question_id(user_id, user_prefix)
+    question_id = bd_redis.get(f'{user_prefix}_{user_id}')
 
     if not question_id:
-        question_id = get_random_question_id(fetch_questions())
+        question_id = choice(bd_redis.keys('QA_*'))
 
     logger.info(f'Получен вопрос с id: {question_id}')
 
-    set_question_id(user_id, question_id, user_prefix)
+    bd_redis.set(f'{user_prefix}_{user_id}', question_id)
     logger.info(f'Установка id вопроса пользователя: {user_id}')
 
-    logger.info(f'Правильный ответ: {get_answer_text(question_id)}')
+    logger.info(f'Правильный ответ: {get_answer_text(bd_redis, question_id)}')
 
-    question_text = get_question_text(question_id)
+    question_text = get_question_text(bd_redis, question_id)
 
     message_text = dedent(
         f'''
@@ -63,12 +61,12 @@ def handle_new_question_request(event, vk_api) -> None:
     )
 
 
-def handle_give_up(event, vk_api) -> None:
+def handle_give_up(event, vk_api, bd_redis) -> None:
     """Обработка кнопки 'Сдаться'."""
     user_id = event.user_id
 
-    if question_id := get_question_id(user_id, user_prefix):
-        answer_text = get_answer_text(question_id)
+    if question_id := bd_redis.get(f'{user_prefix}_{user_id}'):
+        answer_text = get_answer_text(bd_redis, question_id)
 
         message_text = dedent(
             f'''
@@ -87,7 +85,7 @@ def handle_give_up(event, vk_api) -> None:
         )
 
         logger.info(f'Удаление id вопроса пользователя: {user_id}')
-        delete_question_id(user_id, user_prefix)
+        bd_redis.delete(f'{user_prefix}_{user_id}')
 
 
 def handle_show_invoice(event, vk_api) -> None:
@@ -103,21 +101,21 @@ def handle_show_invoice(event, vk_api) -> None:
     )
 
 
-def handle_solution_attempt(event, vk_api) -> None:
+def handle_solution_attempt(event, vk_api, bd_redis) -> None:
     """Обрабатывает ответ пользователя."""
     user_id = event.user_id
     user_response = event.text
 
     message_text = 'Неправильно… Попробуешь ещё раз?'
 
-    if question_id := get_question_id(user_id, user_prefix):
-        answer_text = get_answer_text(question_id)
+    if question_id := bd_redis.get(f'{user_prefix}_{user_id}'):
+        answer_text = get_answer_text(bd_redis, question_id)
 
         if answer_text == user_response.lower():
             message_text = 'Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
 
             logger.info(f'Удаление id вопроса пользователя: {user_id}')
-            delete_question_id(user_id, user_prefix)
+            bd_redis.delete(f'{user_prefix}_{user_id}')
 
         vk_api.messages.send(
             user_id=user_id,
@@ -134,7 +132,9 @@ def handle_solution_attempt(event, vk_api) -> None:
         )
 
 
-if __name__ == '__main__':
+def main():
+    import vk_api
+
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO,
@@ -143,7 +143,8 @@ if __name__ == '__main__':
     logger.info('Старт бота викторины.')
     logger.info('Получение списка id вопросов...')
 
-    question_ids = fetch_questions()
+    bd_redis = create_redis()
+    question_ids = bd_redis.keys('QA_*')
 
     logger.info(
         dedent(
@@ -168,16 +169,16 @@ if __name__ == '__main__':
         if event.type == VkEventType.MESSAGE_NEW and event.to_me:
             try:
                 if event.text == 'Новый вопрос':
-                    handle_new_question_request(event, vk_api)
+                    handle_new_question_request(event, vk_api, bd_redis)
 
                 elif event.text == 'Сдаться':
-                    handle_give_up(event, vk_api)
+                    handle_give_up(event, vk_api, bd_redis)
 
                 elif event.text == 'Мой счёт':
                     handle_show_invoice(event, vk_api)
 
                 else:
-                    handle_solution_attempt(event, vk_api)
+                    handle_solution_attempt(event, vk_api, bd_redis)
             except ApiError as api_error:
                 error_code = api_error.error.get('error_code')
                 error_msg = api_error.error.get('error_msg')
@@ -185,3 +186,7 @@ if __name__ == '__main__':
                 logger.error(
                     f'[{error_code}]: {error_msg}'
                 )
+
+
+if __name__ == '__main__':
+    main()

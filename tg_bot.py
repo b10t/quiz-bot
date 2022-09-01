@@ -1,6 +1,8 @@
 import logging
 import sys
 from enum import Enum, auto
+from functools import partial
+from random import choice
 from textwrap import dedent
 
 from environs import Env
@@ -10,9 +12,7 @@ from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
                           Filters, MessageHandler, Updater)
 from telegram.utils.helpers import escape_markdown
 
-from quiz_api import (delete_question_id, fetch_questions, get_answer_text,
-                      get_question_id, get_question_text,
-                      get_random_question_id, set_question_id)
+from quiz_api import create_redis, get_answer_text, get_question_text
 
 logger = logging.getLogger('support-bot')
 
@@ -70,23 +70,23 @@ def start(update: Update, context: CallbackContext):
     return State.BUTTON_HANDLERS
 
 
-def handle_new_question_request(update: Update, context: CallbackContext) -> None:
+def handle_new_question_request(update: Update, context: CallbackContext, bd_redis) -> None:
     """Обработка кнопки 'Новый вопрос'."""
     user_id = update.effective_user.id
 
-    question_id = get_question_id(user_id, user_prefix)
+    question_id = bd_redis.get(f'{user_prefix}_{user_id}')
 
     if not question_id:
-        question_id = get_random_question_id(fetch_questions())
+        question_id = choice(bd_redis.keys('QA_*'))
 
     logger.info(f'Получен вопрос с id: {question_id}')
 
-    set_question_id(user_id, question_id, user_prefix)
+    bd_redis.set(f'{user_prefix}_{user_id}', question_id)
     logger.info(f'Установка id вопроса пользователя: {user_id}')
 
-    logger.info(f'Правильный ответ: {get_answer_text(question_id)}')
+    logger.info(f'Правильный ответ: {get_answer_text(bd_redis, question_id)}')
 
-    question_text = get_question_text(question_id)
+    question_text = get_question_text(bd_redis, question_id)
     question_text = escape_markdown(question_text, 2)
 
     message_text = dedent(
@@ -101,12 +101,12 @@ def handle_new_question_request(update: Update, context: CallbackContext) -> Non
     )
 
 
-def handle_give_up(update: Update, context: CallbackContext) -> None:
+def handle_give_up(update: Update, context: CallbackContext, bd_redis) -> None:
     """Обработка кнопки 'Сдаться'."""
     user_id = update.effective_user.id
 
-    if question_id := get_question_id(user_id, user_prefix):
-        answer_text = get_answer_text(question_id)
+    if question_id := bd_redis.get(f'{user_prefix}_{user_id}'):
+        answer_text = get_answer_text(bd_redis, question_id)
         answer_text = escape_markdown(answer_text, 2)
 
         message_text = dedent(
@@ -124,7 +124,7 @@ def handle_give_up(update: Update, context: CallbackContext) -> None:
         )
 
         logger.info(f'Удаление id вопроса пользователя: {user_id}')
-        delete_question_id(user_id, user_prefix)
+        bd_redis.delete(f'{user_prefix}_{user_id}')
 
 
 def handle_show_invoice(update: Update, context: CallbackContext) -> None:
@@ -132,21 +132,21 @@ def handle_show_invoice(update: Update, context: CallbackContext) -> None:
     update.message.reply_text('Данная функция в разработке.')
 
 
-def handle_solution_attempt(update: Update, context: CallbackContext) -> None:
+def handle_solution_attempt(update: Update, context: CallbackContext, bd_redis) -> None:
     """Обрабатывает ответ пользователя."""
     user_id = update.effective_user.id
     user_response = update.message.text
 
     message_text = 'Неправильно… Попробуешь ещё раз?'
 
-    if question_id := get_question_id(user_id, user_prefix):
-        answer_text = get_answer_text(question_id)
+    if question_id := bd_redis.get(f'{user_prefix}_{user_id}'):
+        answer_text = get_answer_text(bd_redis, question_id)
 
         if answer_text == user_response.lower():
             message_text = 'Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
 
             logger.info(f'Удаление id вопроса пользователя: {user_id}')
-            delete_question_id(user_id, user_prefix)
+            bd_redis.delete(f'{user_prefix}_{user_id}')
 
         update.message.reply_text(
             message_text,
@@ -172,6 +172,34 @@ def cancel(update: Update, context: CallbackContext) -> int:
 
 def create_and_start_bot(telegram_token, telegram_chat_id):
     """Creates and launches a telegram bot."""
+    logger.info('Старт бота викторины.')
+    logger.info('Получение списка id вопросов...')
+
+    bd_redis = create_redis()
+    question_ids = bd_redis.keys('QA_*')
+
+    logger.info(
+        dedent(
+            f'''
+            Размер списка вопросов в памяти: {sys.getsizeof(question_ids)}
+            Кол-во вопросов викторины: {len(question_ids)}
+            '''
+        )
+    )
+
+    handle_new_question_request_partial = partial(
+        handle_new_question_request,
+        bd_redis=bd_redis
+    )
+    handle_give_up_partial = partial(
+        handle_give_up,
+        bd_redis=bd_redis
+    )
+    handle_solution_attempt_partial = partial(
+        handle_solution_attempt,
+        bd_redis=bd_redis
+    )
+
     updater = Updater(telegram_token)
     dispatcher = updater.dispatcher
 
@@ -180,13 +208,13 @@ def create_and_start_bot(telegram_token, telegram_chat_id):
         states={
             State.BUTTON_HANDLERS: [
                 MessageHandler(Filters.regex('^Новый вопрос$')
-                               & ~Filters.command, handle_new_question_request),
+                               & ~Filters.command, handle_new_question_request_partial),
                 MessageHandler(Filters.regex('^Сдаться$')
-                               & ~Filters.command, handle_give_up),
+                               & ~Filters.command, handle_give_up_partial),
                 MessageHandler(Filters.regex('^Мой счёт$')
                                & ~Filters.command, handle_show_invoice),
                 MessageHandler(Filters.text & ~Filters.command,
-                               handle_solution_attempt)
+                               handle_solution_attempt_partial)
             ],
         },  # type: ignore
         fallbacks=[
@@ -203,7 +231,7 @@ def create_and_start_bot(telegram_token, telegram_chat_id):
     return dispatcher.bot
 
 
-if __name__ == '__main__':
+def main():
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO,
@@ -220,16 +248,6 @@ if __name__ == '__main__':
     bot_logs_handler = BotLogsHandler(telegram_bot, telegram_chat_id)
     logger.addHandler(bot_logs_handler)
 
-    logger.info('Старт бота викторины.')
-    logger.info('Получение списка id вопросов...')
 
-    question_ids = fetch_questions()
-
-    logger.info(
-        dedent(
-            f'''
-            Размер списка вопросов в памяти: {sys.getsizeof(question_ids)}
-            Кол-во вопросов викторины: {len(question_ids)}
-            '''
-        )
-    )
+if __name__ == '__main__':
+    main()
